@@ -493,6 +493,55 @@ typedef struct {
     cos_list_t node;
 } cos_tagging_params_t;
 
+typedef enum {
+    SELECT_UNKNOWN,
+    SELECT_CSV,
+    SELECT_JSON,
+} select_format_t;
+
+typedef struct {
+    cos_string_t compression_type;
+    select_format_t format;
+    union {
+        struct {
+            cos_string_t record_delimiter;
+            cos_string_t field_delimiter;
+            cos_string_t quote_character;
+            cos_string_t quote_escape_character;
+            cos_string_t allow_quoted_record_delimiter;
+            cos_string_t file_header_info;
+            cos_string_t comments;
+        } csv;
+        struct {
+            cos_string_t type;
+        } json;
+    };
+} cos_select_object_input_params_t;
+
+typedef struct {
+    select_format_t format;
+    union {
+        struct {
+            cos_string_t quote_fields;
+            cos_string_t record_delimiter;
+            cos_string_t field_delimiter;
+            cos_string_t quote_character;
+            cos_string_t quote_escape_character;
+        } csv;
+        struct {
+            cos_string_t record_delimiter;
+        } json;
+    };
+} cos_select_object_output_params_t;
+
+typedef struct {
+    cos_string_t expression;
+    cos_string_t expression_type;
+    cos_select_object_input_params_t  input_params;
+    cos_select_object_output_params_t output_params;
+} cos_select_object_params_t;
+
+
 #define COS_AUTH_EXPIRE_DEFAULT 300
 
 #endif

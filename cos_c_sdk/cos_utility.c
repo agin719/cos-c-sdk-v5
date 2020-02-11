@@ -1429,4 +1429,281 @@ void cos_set_content_md5_enable(cos_http_controller_t *ctl, int enable)
     ctl->options->enable_md5 = enable;
 }
 
+cos_select_object_params_t *cos_create_select_object_params(cos_pool_t *p)
+{
+    cos_select_object_params_t *params = (cos_select_object_params_t*) cos_palloc(p, sizeof(cos_select_object_params_t)); 
+
+    cos_str_set(&params->expression, "");
+    cos_str_set(&params->expression_type, "");
+
+    cos_str_set(&params->input_params.compression_type, "");
+    params->input_params.format = SELECT_UNKNOWN;
+    cos_str_set(&params->input_params.csv.record_delimiter, "");
+    cos_str_set(&params->input_params.csv.field_delimiter, "");
+    cos_str_set(&params->input_params.csv.quote_character, "");
+    cos_str_set(&params->input_params.csv.quote_escape_character, "");
+    cos_str_set(&params->input_params.csv.allow_quoted_record_delimiter, "");
+    cos_str_set(&params->input_params.csv.file_header_info, "");
+    cos_str_set(&params->input_params.csv.comments, "");
+    cos_str_set(&params->input_params.json.type, "");
+
+    params->output_params.format = SELECT_UNKNOWN;
+    cos_str_set(&params->output_params.csv.quote_fields, "");
+    cos_str_set(&params->output_params.csv.record_delimiter, "");
+    cos_str_set(&params->output_params.csv.field_delimiter, "");
+    cos_str_set(&params->output_params.csv.quote_character, "");
+    cos_str_set(&params->output_params.csv.quote_escape_character, "");
+    cos_str_set(&params->output_params.json.record_delimiter, "");
+    
+    return params;
+}
+
+#define FRAME_PREDULE_LEN 12
+
+typedef enum {
+    UnknownMessage,
+    ErrorMessage,
+    RecordMessage,
+    ContinuationMessage,
+    StatsMessage,
+    ProgressMessage,
+    EndMessage,
+} cos_select_message_type_t;
+
+typedef struct {
+    uint8_t predule[FRAME_PREDULE_LEN];
+    int32_t predule_len; 
+    int32_t headers_len;
+    int32_t headers_pos;
+    uint8_t *headers;
+    cos_select_message_type_t type;
+    int32_t payload_remain;
+    uint32_t payload_crc32;
+    int32_t tail_len;
+    uint8_t tail[4];
+} cos_select_depack_frame_t;
+
+typedef struct {
+    int8_t name_length;
+    int8_t name_pos;
+    int8_t value_length;
+    int8_t value_pos;
+    int done;
+    char *name;
+    char *value;
+    cos_list_t node;
+} cos_select_header_t;
+
+int cos_ntoi(char *buf) {
+    int res = buf[0];
+    res = (res << 8) | buf[1]; 
+    res = (res << 8) | buf[2];
+    res = (res << 8) | buf[3];
+    return res;
+}
+
+
+void cos_build_select_headers_to_type(cos_select_depack_frame_t *frame)
+{
+    uint8_t *ptr = frame->headers;
+    int remain = frame->headers_len;
+    cos_select_message_type_t type = 0;
+    while (remain > 0) {
+        uint8_t name_len = ptr[0];
+        char name[name_len];
+        memcpy(name, ptr+1, name_len);
+        ptr += name_len + 1;
+        uint8_t value_len = ptr[0];
+        char value[value_len];
+        memcpy(value, ptr+1, value_len);
+        ptr += value_len + 1;
+        remain -= 1 + name_len + 1 + value_len;
+       
+        if (strncmp(name, ":message-type", name_len) == 0) {
+            if (strncmp(value, "error", value_len) == 0) {
+                type = ErrorMessage;
+            } else if (strncmp(value, "event", value_len) == 0) {
+
+            } else {
+                type = UnknownMessage;
+            }
+        } else if (strncmp(name, ":event-type", name_len) == 0) {
+            if (strncmp(value, "Records", value_len) == 0) {
+                type = RecordMessage;
+            } else if (strncmp(value, "Cont", value_len) == 0) {
+                type = ContinuationMessage;
+            } else if (strncmp(value, "Progress", value_len) == 0) {
+                type = ProgressMessage;
+            } else if (strncmp(value, "Stats", value_len) == 0) {
+                type = StatsMessage;
+            } else if (strncmp(value, "End", value_len) == 0) {
+                type = EndMessage;
+            } else {
+                type = UnknownMessage;
+            }
+        } else if (strncmp(name, ":error-code", name_len) == 0) {
+            type = ErrorMessage;
+            // TODO 
+            // Get Error Code
+        } else if (strncmp(name, ":error-message", name_len) == 0) {
+            type = ErrorMessage;
+            // TODO
+            // Get Error Message
+        } else if (strncmp(name, ":content-type", name_len) == 0) {
+            // TODO
+            // Get Content Type 
+        } else {
+            type = UnknownMessage;
+        }
+    }
+    frame->type = type;
+}
+
+int cos_fill_depack_frame(cos_select_depack_frame_t *frame, const char *buffer, int len, const char **payload, int *payload_len)
+{
+    int remain = len;
+    const char *ptr = buffer;
+
+    // prelude
+    if (frame->predule_len < FRAME_PREDULE_LEN) {
+        int copy = cos_min(FRAME_PREDULE_LEN - frame->predule_len, remain);
+        memcpy(frame->predule + frame->predule_len, ptr, copy);
+        frame->predule_len += copy;
+        ptr += copy;
+        remain -= copy;
+        if (frame->predule_len == FRAME_PREDULE_LEN) {
+            int total_len = cos_ntoi((char*)frame);
+            frame->headers_len = cos_ntoi(((char*)frame) + 4);
+            frame->headers_pos = 0;
+            frame->headers = (uint8_t*) malloc(frame->headers_len * sizeof(uint8_t));
+            // payload len
+            frame->payload_remain = total_len - frame->headers_len - FRAME_PREDULE_LEN - 4;
+            frame->payload_crc32 = 0;
+        }
+    }
+
+    // headers
+    if (frame->headers_pos < frame->headers_len) {
+        int copy = cos_min(frame->headers_len - frame->headers_pos, remain);
+        memcpy(frame->headers + frame->headers_pos, ptr, copy);
+        frame->headers_pos += copy;
+        ptr += copy;
+        remain -= copy;
+        if (frame->headers_pos == frame->headers_len) {
+            cos_build_select_headers_to_type(frame);
+            free(frame->headers);
+        } else {
+            return len - remain;
+        }
+    }
+
+    // payload 
+    if (frame->payload_remain > 0) {
+        int copy = cos_min(frame->payload_remain, remain);
+        *payload = ptr;
+        *payload_len = copy;
+        frame->payload_remain -= copy;
+        remain -= copy;
+        ptr += copy;
+        frame->payload_crc32 = cos_crc32(frame->payload_crc32, ptr, copy);
+        if (frame->payload_remain != 0) {
+            return len - remain;
+        }
+    }
+
+    // payload crc
+    if (frame->tail_len < 4) {
+        int copy = cos_min(4 - frame->tail_len, remain);
+        memcpy(frame->tail + frame->tail_len, ptr, copy);
+        frame->tail_len += copy;
+        remain -= copy;
+        ptr += copy;
+    }
+    return len - remain;
+}
+
+static int cos_write_select_object_to(cos_http_response_t *resp, const char *buffer, int len)
+{
+    if (resp->type == BODY_IN_FILE) {
+        return cos_write_http_body_file(resp, buffer, len);
+    } else if (resp->type == BODY_IN_MEMORY) {
+        return cos_write_http_body_memory(resp, buffer, len);
+    }
+    return COSE_INVALID_OPERATION;
+}
+
+int cos_select_object_write_body(cos_http_response_t *resp, const char *buffer, int len)
+{
+    return cos_write_select_object_to(resp, buffer, len);
+    cos_select_depack_frame_t *frame = (cos_select_depack_frame_t*) resp->user_data; 
+    
+    if (frame == NULL) {
+        return -1;
+    }
+    
+    const char *ptr = buffer;
+    int remain = len;
+    const char *payload = NULL;
+    int payload_len = 0;
+    while (remain > 0) {
+        int ret = cos_fill_depack_frame(frame, ptr, remain, &payload, &payload_len);
+        if (ret < 0) {
+            return ret;
+        }
+        switch (frame->type) {
+            case RecordMessage:
+            {
+                int wlen = cos_write_select_object_to(resp, payload, payload_len);
+                if (wlen != payload_len) {
+                    return wlen;
+                }
+                break;
+            }
+            case ContinuationMessage:
+                break;
+            case ProgressMessage:
+                break;
+            case StatsMessage:
+                break;
+            case EndMessage:
+                return len; 
+            case ErrorMessage:
+                return COSE_SELECT_OBJECT_ERROR;
+            default:
+                if (frame->tail_len == 4) {
+                    uint32_t payload_crc32 = (uint32_t) cos_ntoi((char*)frame->tail);
+                    if (payload_crc32 != 0 && payload_crc32 != frame->payload_crc32) {
+                        return COSE_SELECT_OBJECT_CRC_ERROR;
+                    }
+                    frame->headers_len = 0;
+                    frame->tail_len = 0;
+                }
+        }
+        ptr += ret;
+        remain -= ret;
+    }
+    return len;
+}
+
+void cos_init_select_object_response_write_body(cos_pool_t *p, cos_http_response_t *resp)
+{
+    cos_select_depack_frame_t *frame = (cos_select_depack_frame_t*) cos_palloc(p, sizeof(cos_select_depack_frame_t));
+    
+    memset(frame->predule, 0, sizeof(frame->predule));
+    frame->predule_len = 0;
+    
+    frame->headers_len = 0;
+    frame->headers_pos = 0;
+    frame->headers = NULL;
+
+    frame->type = UnknownMessage;
+
+    frame->payload_remain = 0;
+    frame->payload_crc32 = 0;
+    
+    frame->tail_len = 0; 
+   
+    resp->user_data = frame;
+    resp->write_body = cos_select_object_write_body;
+}
 

@@ -752,7 +752,9 @@ cos_status_t *cos_resumable_upload_file_with_cp(cos_request_options_t *options,
     options->pool = parent_pool;
 
     // remove chepoint file
-    apr_file_remove(checkpoint_path->data, parent_pool);
+    if (cos_status_is_ok(s)) {
+        apr_file_remove(checkpoint_path->data, parent_pool);
+    }
     
     return s;
 }

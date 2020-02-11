@@ -404,6 +404,10 @@ void cos_set_content_md5_enable(cos_http_controller_t *ctl, int enable);
 **/
 void cos_set_request_route(cos_http_controller_t *ctl, char *host_ip, int host_port);
 
+cos_select_object_params_t *cos_create_select_object_params(cos_pool_t *p);
+
+void cos_init_select_object_response_write_body(cos_pool_t *p, cos_http_response_t *resp);
+
 COS_CPP_END
 
 #endif

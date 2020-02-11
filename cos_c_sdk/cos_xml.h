@@ -341,6 +341,12 @@ void cos_live_channel_history_contents_parse(cos_pool_t *p, mxml_node_t *root, c
     cos_list_t *live_record_list);
 int cos_live_channel_history_parse_from_body(cos_pool_t *p, cos_list_t *bc, cos_list_t *live_record_list);
 
+/*
+ *  @brief select object
+ */
+void build_select_object_body(cos_pool_t *p, cos_select_object_params_t *params, cos_list_t *body);
+char *build_select_object_xml(cos_pool_t *p, cos_select_object_params_t *params);
+
 COS_CPP_END
 
 #endif

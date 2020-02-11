@@ -11,6 +11,7 @@ static char TEST_ACCESS_KEY_SECRET[] = "SECRET_KEY";   //your secret_key
 static char TEST_APPID[] = "APPID";    //your appid
 static char TEST_BUCKET_NAME[] = "<bucketname-APPID>";    //the cos bucket name, syntax: [bucket]-[appid], for example: mybucket-1253666666
 static char TEST_UIN[] = "uin";    //your uin
+
 static char TEST_REGION[] = "ap-guangzhou";    //region in endpoint
 static char TEST_OBJECT_NAME1[] = "1.txt";
 static char TEST_OBJECT_NAME2[] = "test2.dat";
@@ -693,9 +694,9 @@ void test_resumable_upload_with_multi_threads()
     cos_str_set(&filename, TEST_MULTIPART_FILE);
 
     // upload
-    clt_params = cos_create_resumable_clt_params_content(p, 1024 * 1024, 8, COS_FALSE, NULL);
+    clt_params = cos_create_resumable_clt_params_content(p, 0, 0, COS_TRUE, NULL);
     s = cos_resumable_upload_file(options, &bucket, &object, &filename, headers, NULL, 
-        clt_params, NULL, &resp_headers, NULL);
+        clt_params, progress_callback, &resp_headers, NULL);
 
     if (cos_status_is_ok(s)) {
         printf("upload succeeded\n");
@@ -1689,6 +1690,83 @@ void test_tagging()
     cos_pool_destroy(pool);
 }
 
+void test_select_object()
+{
+    cos_pool_t *pool = NULL;
+    int is_cname = 0;
+    cos_status_t *status = NULL;
+    cos_request_options_t *options = NULL;
+    cos_select_object_params_t *params = NULL;
+    cos_table_t *resp_headers = NULL;
+    cos_string_t bucket;
+    cos_string_t object;
+    cos_list_t buffer;
+    cos_buf_t *content = NULL;
+
+    //创建内存池
+    cos_pool_create(&pool, NULL);
+
+    //初始化请求选项
+    options = cos_request_options_create(pool);
+    options->config = cos_config_create(options->pool);
+
+    init_test_request_options(options, is_cname);
+    options->ctl = cos_http_controller_create(options->pool, 0);
+    cos_str_set(&bucket, TEST_BUCKET_NAME);
+    cos_str_set(&object, "test.json");
+   
+    cos_list_init(&buffer); 
+
+    /*
+    params = cos_create_select_object_params(options->pool);
+    cos_str_set(&params->expression, "Select * from COSObject");
+    cos_str_set(&params->expression_type, "SQL");
+    cos_str_set(&params->input_params.compression_type, "None");
+    params->input_params.format = SELECT_CSV;
+    cos_str_set(&params->input_params.csv.file_header_info, "IGNORE");
+    cos_str_set(&params->input_params.csv.record_delimiter, "\n");
+    cos_str_set(&params->input_params.csv.field_delimiter, ",");
+    cos_str_set(&params->input_params.csv.quote_character, ",");
+    cos_str_set(&params->input_params.csv.quote_escape_character, "\"");
+    cos_str_set(&params->input_params.csv.allow_quoted_record_delimiter, "\"");
+    cos_str_set(&params->input_params.csv.comments, "#");
+    params->output_params.format = SELECT_CSV;
+    cos_str_set(&params->output_params.csv.quote_fields, "ASNEEDED");
+    cos_str_set(&params->output_params.csv.record_delimiter, "\n");
+    cos_str_set(&params->output_params.csv.field_delimiter, ",");
+    cos_str_set(&params->output_params.csv.quote_character, "\"");
+    cos_str_set(&params->output_params.csv.quote_escape_character, "\"");
+    */
+    params = cos_create_select_object_params(options->pool);
+    cos_str_set(&params->expression, "Select * from COSObject");
+    cos_str_set(&params->expression_type, "SQL");
+    cos_str_set(&params->input_params.compression_type, "None");
+    params->input_params.format = SELECT_JSON;
+    cos_str_set(&params->input_params.json.type, "DOCUMENT");
+    params->output_params.format = SELECT_JSON;
+    cos_str_set(&params->output_params.json.record_delimiter, "\n");
+ 
+    status = cos_select_object_to_buffer(options, &bucket, &object, NULL, NULL, params, &buffer, &resp_headers);
+    log_status(status);
+    int64_t len = 0;
+    int64_t size = 0;
+    int64_t pos = 0;
+    cos_list_for_each_entry(cos_buf_t, content, &buffer, node) {
+        len += cos_buf_size(content);
+    }
+    char *buf = cos_pcalloc(pool, (apr_size_t)(len + 1));
+    buf[len] = '\0';
+    cos_list_for_each_entry(cos_buf_t, content, &buffer, node) {
+        size = cos_buf_size(content);
+        memcpy(buf + pos, content->pos, (size_t)size);
+        pos += size;
+    }
+    cos_warn_log("Download data=%s", buf);
+
+
+    cos_pool_destroy(pool);
+}
+
 int main(int argc, char *argv[])
 {
     int exit_code = -1;
@@ -1704,9 +1782,10 @@ int main(int argc, char *argv[])
     //set log output, default stderr
     cos_log_set_output(NULL);
 
-    test_tagging();
-    test_logging();
-    test_inventory();
+    //test_select_object();
+    //test_tagging();
+    //test_logging();
+    //test_inventory();
     //test_put_object_from_file_with_sse();
     //test_get_object_to_file_with_sse();
     //test_head_bucket();
@@ -1726,7 +1805,7 @@ int main(int argc, char *argv[])
     //list_multipart();
     
     //pthread_t tid[20];
-    //test_resumable_upload_with_multi_threads();
+    test_resumable_upload_with_multi_threads();
     //test_resumable();
     //test_bucket();
     //test_acl();

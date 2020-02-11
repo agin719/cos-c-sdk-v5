@@ -14,6 +14,7 @@ const char COS_INCONSISTENT_ERROR_CODE[] = "InconsistentError";
 const char COS_CREATE_QUEUE_ERROR_CODE[] = "CreateQueueFail";
 const char COS_CREATE_THREAD_POOL_ERROR_CODE[] = "CreateThreadPoolFail";
 const char COS_LACK_OF_CONTENT_LEN_ERROR_CODE[] = "LackOfContentLength";
+const char COS_SELECT_PARAMS_FORMAT_ERROR_CODE[] = "ParamsFormatIsUnkown";
 
 
 cos_status_t *cos_status_create(cos_pool_t *p)

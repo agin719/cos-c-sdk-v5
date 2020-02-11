@@ -1498,6 +1498,15 @@ int cos_gen_presigned_url(const cos_request_options_t *options,
                           http_method_e method,
                           cos_string_t *presigned_url);
 
+cos_status_t *cos_select_object_to_buffer(const cos_request_options_t *options,
+                                        const cos_string_t *bucket,
+                                        const cos_string_t *object,
+                                        cos_table_t *headers,
+                                        cos_table_t *params,
+                                        cos_select_object_params_t *select_params,
+                                        cos_list_t *buffer,
+                                        cos_table_t **resp_headers);
+
 
 COS_CPP_END
 

@@ -8,6 +8,7 @@
 #include "cos_auth.h"
 #include "cos_xml.h"
 #include "cos_define.h"
+#include <stdio.h>
 
 static int get_truncated_from_xml(cos_pool_t *p, mxml_node_t *xml_node, const char *truncated_xml_path);
 
@@ -2655,4 +2656,74 @@ int cos_checkpoint_parse_from_body(cos_pool_t *p, const char *xml_body, cos_chec
     mxmlDelete(root);
 
     return COSE_OK;
+}
+
+void build_select_object_body(cos_pool_t *p, cos_select_object_params_t *params, cos_list_t *body)
+{
+    char *xml;
+    cos_buf_t *b;
+
+    xml = build_select_object_xml(p, params);
+    cos_list_init(body);
+    b = cos_buf_pack(p, xml, strlen(xml));
+    cos_list_add_tail(&b->node, body);
+}
+    
+char *build_select_object_xml(cos_pool_t *p, cos_select_object_params_t *params)
+{
+    char *xml;
+    char *xml_buff;
+    cos_string_t xml_doc;
+    mxml_node_t *doc;
+    mxml_node_t *root_node;
+    mxml_node_t *in_node;
+    mxml_node_t *out_node;
+    
+    doc = mxmlNewXML("1.0");
+    root_node = mxmlNewElement(doc, "SelectRequest");
+    build_xml_node(root_node, "Expression", &params->expression);
+    build_xml_node(root_node, "ExpressionType", &params->expression_type);
+
+    in_node = mxmlNewElement(root_node, "InputSerialization");
+    build_xml_node(in_node, "CompressionType", &params->input_params.compression_type);
+    if (params->input_params.format == SELECT_CSV) {
+        mxml_node_t *csv_node = mxmlNewElement(in_node, "CSV");
+        build_xml_node(csv_node, "FileHeaderInfo", &params->input_params.csv.file_header_info);
+        build_xml_node(csv_node, "RecordDelimiter", &params->input_params.csv.record_delimiter);
+        build_xml_node(csv_node, "FieldDelimiter", &params->input_params.csv.field_delimiter);
+        build_xml_node(csv_node, "QuoteCharacter", &params->input_params.csv.quote_character);
+        build_xml_node(csv_node, "QuoteEscapeCharacter", &params->input_params.csv.quote_escape_character);
+        build_xml_node(csv_node, "Comments", &params->input_params.csv.comments);
+        build_xml_node(csv_node, "AllowQuotedRecordDelimiter", &params->input_params.csv.allow_quoted_record_delimiter);
+    } else {
+        mxml_node_t *json_node = mxmlNewElement(in_node, "JSON");
+        build_xml_node(json_node, "Type", &params->input_params.json.type);
+    }
+
+    out_node = mxmlNewElement(root_node, "OutputSerialization");
+    if (params->output_params.format == SELECT_CSV) {
+        mxml_node_t *csv_node = mxmlNewElement(out_node, "CSV");
+        build_xml_node(csv_node, "QuoteFields", &params->output_params.csv.quote_fields);
+        build_xml_node(csv_node, "RecordDelimiter", &params->output_params.csv.record_delimiter);
+        build_xml_node(csv_node, "FieldDelimiter", &params->output_params.csv.field_delimiter);
+        build_xml_node(csv_node, "QuoteCharacter", &params->output_params.csv.quote_character);
+        build_xml_node(csv_node, "QuoteEscapeCharacter", &params->output_params.csv.quote_escape_character);
+    } else {
+        mxml_node_t *json_node = mxmlNewElement(out_node, "JSON");
+        build_xml_node(json_node, "RecordDelimiter", &params->output_params.json.record_delimiter);
+    }
+
+    xml_buff = new_xml_buff(doc);
+    if (xml_buff == NULL) {
+        mxmlDelete(doc);
+        return NULL;
+    }
+    cos_str_set(&xml_doc, xml_buff);
+    xml = cos_pstrdup(p, &xml_doc);
+
+    free(xml_buff);
+    mxmlDelete(doc);
+
+    printf("xml:\n%s\n", xml);
+    return xml;
 }

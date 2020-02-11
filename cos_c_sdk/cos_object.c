@@ -999,3 +999,58 @@ cos_status_t *cos_head_object_by_url(const cos_request_options_t *options,
 }
 #endif
 
+cos_status_t *cos_select_object_to_buffer(const cos_request_options_t *options, 
+                                       const cos_string_t *bucket, 
+                                       const cos_string_t *object,
+                                       cos_table_t *headers, 
+                                       cos_table_t *params,
+                                       cos_select_object_params_t *select_params,
+                                       cos_list_t *buffer, 
+                                       cos_table_t **resp_headers)
+{
+    cos_status_t *s = NULL;
+    cos_http_request_t *req = NULL;
+    cos_http_response_t *resp = NULL;
+    
+    cos_list_t body;
+    unsigned char *md5 = NULL;
+    char *buf = NULL;
+    int64_t body_len;
+    char *b64_value = NULL;
+    int b64_buf_len = (20 + 1) * 4 / 3;
+    int b64_len;
+
+    if (select_params->input_params.format == SELECT_UNKNOWN || select_params->output_params.format == SELECT_UNKNOWN) {
+        s = cos_status_create(options->pool);
+        cos_status_set(s, COSE_INVALID_ARGUMENT, COS_SELECT_PARAMS_FORMAT_ERROR_CODE, COS_SELECT_PARAMS_FORMAT_ERROR_CODE);
+        return s;
+    }
+    headers = cos_table_create_if_null(options, headers, 0);
+    params = cos_table_create_if_null(options, params, 0);
+
+    cos_init_object_request(options, bucket, object, HTTP_GET, 
+                            &req, params, headers, NULL, 0, &resp);
+
+    build_select_object_body(options->pool, select_params, &body);
+
+    //add Content-MD5
+    body_len = cos_buf_list_len(&body);
+    buf = cos_buf_list_content(options->pool, &body);
+    md5 = cos_md5(options->pool, buf, (apr_size_t)body_len);
+    b64_value = cos_pcalloc(options->pool, b64_buf_len);
+    b64_len = cos_base64_encode(md5, 16, b64_value);
+    b64_value[b64_len] = '\0';
+    apr_table_addn(headers, COS_CONTENT_MD5, b64_value);
+
+    apr_table_addn(headers, COS_CONTENT_TYPE, "application/xml");
+    
+    cos_write_request_body_from_buffer(&body, req);
+    cos_init_select_object_response_write_body(options->pool, resp);
+    s = cos_process_request(options, req, resp);
+    
+    cos_fill_read_response_body(resp, buffer);
+    cos_fill_read_response_header(resp, resp_headers);
+
+    return s;
+}
+
