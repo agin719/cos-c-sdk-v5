@@ -208,10 +208,23 @@ void cos_get_service_uri(const cos_request_options_t *options,
     int32_t proto_len;
     cos_string_t raw_endpoint;
 
-    generate_proto(options, req);
-    if (all_region == 1) {
+
+    if (!cos_is_null_string(&options->config->service_domain))
+    {
+        const char *proto;
+        proto = starts_with(&options->config->service_domain, COS_HTTP_PREFIX) ?
+            COS_HTTP_PREFIX : "";
+        proto = starts_with(&options->config->service_domain, COS_HTTPS_PREFIX) ?
+            COS_HTTPS_PREFIX : proto;
+        req->proto = apr_psprintf(options->pool, "%.*s", (int)strlen(proto), proto);
+        proto_len = strlen(req->proto);
+        req->host = apr_psprintf(options->pool, "%.*s",
+                                options->config->service_domain.len - proto_len,
+                                options->config->service_domain.data + proto_len);
+    } else if (all_region == 1) {
         req->host = apr_psprintf(options->pool, "%s", "service.cos.myqcloud.com");
     } else {
+        generate_proto(options, req);
         proto_len = strlen(req->proto);
         raw_endpoint.len = options->config->endpoint.len - proto_len;
         raw_endpoint.data = options->config->endpoint.data + proto_len;
